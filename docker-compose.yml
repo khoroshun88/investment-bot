@@ -48,6 +48,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
       TINVEST_TOKEN: ${TINVEST_TOKEN}
+      TINVEST_ACCOUNT_ID: ${TINVEST_ACCOUNT_ID}
 
     depends_on:
       postgres:

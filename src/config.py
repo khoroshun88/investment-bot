@@ -15,6 +15,7 @@ class Settings:
     db_password: str
 
     tinvest_token: str
+    tinvest_account_id: str
 
 
 def load_settings() -> Settings:
@@ -28,4 +29,5 @@ def load_settings() -> Settings:
         db_user=os.environ["POSTGRES_USER"],
         db_password=os.environ["POSTGRES_PASSWORD"],
         tinvest_token=os.getenv("TINVEST_TOKEN", ""),
+        tinvest_account_id=os.getenv("TINVEST_ACCOUNT_ID", ""),
     )
