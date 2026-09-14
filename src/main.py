@@ -1,29 +1,27 @@
-import os
-import psycopg
+import logging
+
+from config import load_settings
+from database import check_connection
+from logging_config import setup_logging
 
 
-def main():
-    db_name = os.environ["POSTGRES_DB"]
-    db_user = os.environ["POSTGRES_USER"]
-    db_password = os.environ["POSTGRES_PASSWORD"]
+def main() -> None:
+    settings = load_settings()
 
-    print("Connecting to PostgreSQL...")
+    setup_logging(settings.log_level)
 
-    with psycopg.connect(
-        host="postgres",
-        port=5432,
-        dbname=db_name,
-        user=db_user,
-        password=db_password,
-    ) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1;")
-            result = cur.fetchone()
+    logger = logging.getLogger(__name__)
 
-    print(f"PostgreSQL response: {result}")
-    print("Database connection test successful.")
+    logger.info(
+        "Starting %s in %s environment",
+        settings.app_name,
+        settings.app_env,
+    )
+
+    check_connection(settings)
+
+    logger.info("Application startup check completed successfully")
 
 
 if __name__ == "__main__":
     main()
-
