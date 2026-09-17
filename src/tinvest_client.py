@@ -1,8 +1,7 @@
 import logging
-
 import grpc
 from t_tech import invest
-
+from t_tech.invest.schemas import InstrumentIdType
 from config import Settings
 from decimal import Decimal
 
@@ -251,4 +250,109 @@ def get_portfolio(settings: Settings, account):
         daily_yield_relative * Decimal("100"),
 )
 
+    for position in response.positions:
+        logger.info(
+            "PORTFOLIO POSITION: %s",
+            position,
+        )
+
     return response
+
+def instrument_to_dict(instrument, instrument_uid: str) -> dict:
+    """Convert T-Invest Instrument to a database-friendly dict."""
+
+    return {
+        "instrument_uid": instrument_uid,
+        "figi": instrument.figi,
+        "ticker": instrument.ticker,
+        "class_code": instrument.class_code,
+        "isin": instrument.isin,
+        "name": instrument.name,
+        "instrument_type": instrument.instrument_type,
+        "currency": instrument.currency,
+        "lot": instrument.lot,
+        "exchange": instrument.exchange,
+        "country_of_risk": instrument.country_of_risk,
+        "country_of_risk_name": instrument.country_of_risk_name,
+        "for_iis_flag": instrument.for_iis_flag,
+        "for_qual_investor_flag": instrument.for_qual_investor_flag,
+        "buy_available_flag": instrument.buy_available_flag,
+        "sell_available_flag": instrument.sell_available_flag,
+        "min_price_increment": quotation_to_decimal(
+            instrument.min_price_increment
+        ),
+        "position_uid": instrument.position_uid,
+        "asset_uid": instrument.asset_uid,
+    }
+
+def get_instrument_metadata(settings: Settings, portfolio):
+    """Get metadata for all instruments in the portfolio."""
+
+    instrument_uids = {
+        position.instrument_uid
+        for position in portfolio.positions
+        if position.instrument_uid
+    }
+
+    logger.info(
+        "Getting instrument metadata: instruments=%d",
+        len(instrument_uids),
+    )
+
+    metadata = {}
+
+    try:
+        with invest.Client(
+            settings.tinvest_token,
+            app_name=settings.app_name,
+        ) as client:
+
+            for instrument_uid in instrument_uids:
+                try:
+                    response = client.instruments.get_instrument_by(
+                        id=instrument_uid,
+                        id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_UID,
+                    )
+
+                    instrument = response.instrument
+
+                    metadata[instrument_uid] = instrument_to_dict(
+                                instrument,
+                                instrument_uid,
+                        )
+
+                    logger.info(
+                            "Instrument metadata received: "
+                            "uid=%s, ticker=%s, name=%s",
+                            instrument_uid,
+                            instrument.ticker,
+                            instrument.name,
+                        )
+
+                except grpc.RpcError as error:
+                    logger.error(
+                        "Failed to get instrument metadata: "
+                        "uid=%s, status=%s, details=%s",
+                        instrument_uid,
+                        error.code().name,
+                        error.details(),
+                    )
+
+    except grpc.RpcError as error:
+        logger.error(
+            "T-Invest API error while getting instrument metadata: "
+            "status=%s, details=%s",
+            error.code().name,
+            error.details(),
+        )
+        raise RuntimeError(
+            "Ошибка T-Invest API при получении метаданных инструментов"
+        ) from error
+
+    logger.info(
+        "Instrument metadata received: %d/%d",
+        len(metadata),
+        len(instrument_uids),
+    )
+
+    return metadata 
