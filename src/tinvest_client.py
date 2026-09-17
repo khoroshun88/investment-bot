@@ -183,6 +183,104 @@ def get_selected_account(settings: Settings, accounts):
         "не найден среди доступных счетов T-Invest"
     )
 
+def get_account_portfolio(settings: Settings, account_id: str):
+    """Get portfolio for any account by account ID."""
+    logger.info(
+        "Getting portfolio for account %s",
+        account_id,
+    )
+
+    try:
+        with invest.Client(
+            settings.tinvest_token,
+            app_name=settings.app_name,
+        ) as client:
+            response = client.operations.get_portfolio(
+                account_id=account_id,
+            )
+
+    except grpc.RpcError as error:
+        code = error.code()
+
+        if code == grpc.StatusCode.UNAUTHENTICATED:
+            raise RuntimeError(
+                "Недействительный или просроченный T-Invest токен"
+            ) from error
+
+        if code == grpc.StatusCode.PERMISSION_DENIED:
+            raise RuntimeError(
+                f"Нет прав для получения портфеля счёта {account_id}"
+            ) from error
+
+        logger.error(
+            "T-Invest API gRPC error while getting portfolio: "
+            "status=%s, details=%s",
+            code.name,
+            error.details(),
+        )
+        raise RuntimeError(
+            f"Ошибка T-Invest API при получении портфеля "
+            f"(gRPC {code.name})"
+        ) from error
+
+    return response
+
+def print_accounts_info(settings: Settings, accounts):
+    """Print all accounts with portfolio value."""
+    logger.info("Getting portfolio information for all accounts")
+
+    try:
+        with invest.Client(
+            settings.tinvest_token,
+            app_name=settings.app_name,
+        ) as client:
+
+            print()
+            print("=" * 80)
+            print("T-INVEST ACCOUNTS")
+            print("=" * 80)
+
+            for number, account in enumerate(accounts, start=1):
+                account_type = account_type_name(account.type)
+                account_status = account_status_name(account.status)
+
+                try:
+                    portfolio = client.operations.get_portfolio(
+                        account_id=account.id,
+                    )
+
+                    total = money_value_to_decimal(
+                        portfolio.total_amount_portfolio
+                    )
+
+                    currency = (
+                        portfolio.total_amount_portfolio.currency
+                    )
+
+                    print()
+                    print(f"[{number}] {account.id}")
+                    print(f"    Type:     {account_type}")
+                    print(f"    Status:   {account_status}")
+                    print(f"    Portfolio: {total:,.2f} {currency}")
+
+                except grpc.RpcError as error:
+                    print()
+                    print(f"[{number}] {account.id}")
+                    print(f"    Type:     {account_type}")
+                    print(f"    Status:   {account_status}")
+                    print(
+                        f"    Portfolio: ERROR "
+                        f"({error.code().name})"
+                    )
+
+            print()
+            print("=" * 80)
+
+    except Exception:
+        logger.exception(
+            "Failed to get portfolio information for accounts"
+        )
+        raise
 
 def get_portfolio(settings: Settings, account):
     """Get portfolio for the selected account."""

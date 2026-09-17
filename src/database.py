@@ -74,6 +74,7 @@ def init_database(settings: Settings) -> None:
             )
 
     logger.info("Database initialization completed")
+    init_strategy_positions_table(settings)
 
 
 def save_instruments(settings: Settings, instruments: dict) -> None:
@@ -164,3 +165,88 @@ def save_instruments(settings: Settings, instruments: dict) -> None:
         "Instrument metadata saved successfully: instruments=%d",
         len(instruments),
     )
+
+def init_strategy_positions_table(settings: Settings) -> None:
+    logger.info("Initializing strategy_positions table")
+
+    with psycopg.connect(
+        host=settings.db_host,
+        port=settings.db_port,
+        dbname=settings.db_name,
+        user=settings.db_user,
+        password=settings.db_password,
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS strategy_positions (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    instrument_uid TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    entry_price NUMERIC(20, 9) NOT NULL,
+                    stop_loss NUMERIC(20, 9) NOT NULL,
+                    take_profit NUMERIC(20, 9) NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 0,
+                    opened_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+                    CONSTRAINT strategy_positions_singleton
+                        CHECK (id = 1),
+
+                    CONSTRAINT strategy_positions_side
+                        CHECK (side IN ('LONG')),
+
+                    CONSTRAINT strategy_positions_quantity
+                        CHECK (quantity >= 0)
+                )
+                """
+            )
+
+    logger.info("strategy_positions table initialized")
+
+def init_strategy_trades_table(settings: Settings) -> None:
+    logger.info("Initializing strategy_trades table")
+
+    with psycopg.connect(
+        host=settings.db_host,
+        port=settings.db_port,
+        dbname=settings.db_name,
+        user=settings.db_user,
+        password=settings.db_password,
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS strategy_trades (
+                    id BIGSERIAL PRIMARY KEY,
+
+                    instrument_uid TEXT NOT NULL,
+                    side TEXT NOT NULL,
+
+                    entry_price NUMERIC(20, 9) NOT NULL,
+                    exit_price NUMERIC(20, 9) NOT NULL,
+
+                    quantity INTEGER NOT NULL DEFAULT 0,
+
+                    stop_loss NUMERIC(20, 9) NOT NULL,
+                    take_profit NUMERIC(20, 9) NOT NULL,
+
+                    close_reason TEXT NOT NULL,
+
+                    opened_at TIMESTAMPTZ NOT NULL,
+                    closed_at TIMESTAMPTZ NOT NULL,
+
+                    pnl NUMERIC(20, 9) NOT NULL,
+
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+                    CONSTRAINT strategy_trades_side
+                        CHECK (side IN ('LONG')),
+
+                    CONSTRAINT strategy_trades_quantity
+                        CHECK (quantity >= 0)
+                )
+                """
+            )
+
+    logger.info("strategy_trades table initialized")

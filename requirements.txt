@@ -1,4 +1,4 @@
 psycopg[binary]==3.2.10
-psycopg[binary]==3.2.10
+pytest
 t-tech-investments
 --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple
