@@ -19,7 +19,11 @@ from strategy_repository import (
 logger = logging.getLogger(__name__)
 
 
-SBER_UID = "e6123145-9665-43e0-8413-cd61b8aa9b13"
+instrument = get_instrument_by_ticker(
+    settings,
+    settings.instrument_ticker,
+)
+instrument_uid = instrument.uid
 
 def calculate_rsi(closes: list[Decimal], period: int = 14) -> Decimal | None:
     """Calculate RSI using Wilder's smoothing method."""
@@ -159,7 +163,7 @@ def get_sber_market_data(
         ) as client:
 
             response = client.market_data.get_candles(
-                instrument_id=SBER_UID,
+                instrument_id=instrument_uid,
                 from_=from_time,
                 to=now,
                 interval=invest.CandleInterval.CANDLE_INTERVAL_1_MIN,
@@ -167,7 +171,7 @@ def get_sber_market_data(
             )
 
             last_prices = client.market_data.get_last_prices(
-                instrument_id=[SBER_UID],
+                instrument_id=[instrument_uid],
             )
 
     except grpc.RpcError as error:
@@ -289,7 +293,7 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
     
     saved_position = load_position(
         settings,
-        SBER_UID,
+        instrument_uid,
     )
     
     strategy.restore_position(saved_position)
@@ -326,7 +330,7 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
                 if action == "OPEN" and strategy.position is not None:
                     save_position(
                         settings,
-                        SBER_UID,
+                        instrument_uid,
                         strategy.position,
                     )
                 
@@ -334,7 +338,7 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
                     if strategy.last_closed_position is not None:
                         save_trade(
                             settings,
-                            SBER_UID,
+                            instrument_uid,
                             strategy.last_closed_position,
                             current_price,
                             action_reason,
