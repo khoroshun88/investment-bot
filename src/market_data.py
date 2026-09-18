@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import grpc
-from t_tech import invest
+from t_tech import invest, get_instrument_by_ticker
 
 from config import Settings
 from tinvest_client import money_value_to_decimal
