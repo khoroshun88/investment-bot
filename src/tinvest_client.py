@@ -454,3 +454,37 @@ def get_instrument_metadata(settings: Settings, portfolio):
     )
 
     return metadata 
+
+def get_instrument_by_ticker(
+    settings: Settings,
+    ticker: str,
+    class_code: str = "TQBR",
+):
+    logger.info(
+        "Searching instrument: ticker=%s class_code=%s",
+        ticker,
+        class_code,
+    )
+
+    credentials = invest.RWTokenCredential(settings.tinvest_token)
+
+    with invest.SyncClient(
+        credentials=credentials,
+    ) as client:
+        response = client.instruments.get_instrument_by(
+            id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_TICKER,
+            id=ticker,
+            class_code=class_code,
+        )
+
+    instrument = response.instrument
+
+    logger.info(
+        "Instrument found: ticker=%s class_code=%s uid=%s name=%s",
+        instrument.ticker,
+        instrument.class_code,
+        instrument.uid,
+        instrument.name,
+    )
+
+    return instrument
