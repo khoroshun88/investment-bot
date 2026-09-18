@@ -16,6 +16,7 @@ class Settings:
 
     tinvest_token: str
     tinvest_account_id: str
+    instrument_ticker: str
 
 
 def load_settings() -> Settings:
@@ -30,4 +31,5 @@ def load_settings() -> Settings:
         db_password=os.environ["POSTGRES_PASSWORD"],
         tinvest_token=os.getenv("TINVEST_TOKEN", ""),
         tinvest_account_id=os.getenv("TINVEST_ACCOUNT_ID", ""),
+        instrument_ticker=os.getenv("INSTRUMENT_TICKER", "SBER"),
     )
