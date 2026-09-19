@@ -12,7 +12,7 @@ from tinvest_client import (
     quotation_to_decimal,
     print_accounts_info,
 )
-from market_data import monitor_sber
+from market_data import monitor_instrument
 
 def main() -> None:
     settings = load_settings()
@@ -47,7 +47,7 @@ def main() -> None:
 
     logger.info("Application startup check completed successfully")
 
-    monitor_sber(
+    monitor_instrument(
         settings,
         candles_count=200,
     )

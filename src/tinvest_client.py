@@ -466,10 +466,9 @@ def get_instrument_by_ticker(
         class_code,
     )
 
-    credentials = invest.RWTokenCredential(settings.tinvest_token)
-
-    with invest.SyncClient(
-        credentials=credentials,
+    with invest.Client(
+    settings.tinvest_token,
+    app_name=settings.app_name,
     ) as client:
         response = client.instruments.get_instrument_by(
             id_type=InstrumentIdType.INSTRUMENT_ID_TYPE_TICKER,
@@ -488,3 +487,19 @@ def get_instrument_by_ticker(
     )
 
     return instrument
+
+def get_instrument_metadata_by_ticker(
+    settings: Settings,
+    ticker: str,
+    class_code: str = "TQBR",
+) -> dict:
+    instrument = get_instrument_by_ticker(
+        settings,
+        ticker,
+        class_code,
+    )
+
+    return instrument_to_dict(
+        instrument,
+        instrument.uid,
+    )

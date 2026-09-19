@@ -79,12 +79,22 @@ def save_position(
                     position.entry_price,
                     position.stop_loss,
                     position.take_profit,
-                    getattr(position, "quantity", 0),
+                    position.quantity,
                     position.opened_at,
                 ),
             )
 
-    logger.info("Strategy position saved")
+    logger.info(
+        "Saving strategy position: instrument=%s side=%s "
+        "quantity=%d entry=%s SL=%s TP=%s",
+        instrument_uid,
+        position.side,
+        position.quantity,
+        position.entry_price,
+        position.stop_loss,
+        position.take_profit,
+        position.opened_at,
+    )
 
 
 def load_position(
@@ -117,6 +127,7 @@ def load_position(
                     entry_price,
                     stop_loss,
                     take_profit,
+                    quantity,
                     opened_at
                 FROM strategy_positions
                 WHERE id = 1
@@ -131,7 +142,7 @@ def load_position(
         logger.info("No saved strategy position")
         return None
 
-    side, entry_price, stop_loss, take_profit, opened_at = row
+    side, entry_price, stop_loss, take_profit, quantity, opened_at = row
 
     position = Position(
         side=side,
@@ -139,11 +150,13 @@ def load_position(
         stop_loss=Decimal(stop_loss),
         take_profit=Decimal(take_profit),
         opened_at=opened_at,
+        quantity=quantity,
     )
 
     logger.info(
         "Strategy position loaded: side=%s entry=%s SL=%s TP=%s",
         position.side,
+        position.quantity,
         position.entry_price,
         position.stop_loss,
         position.take_profit,

@@ -3,12 +3,14 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 @dataclass
+@dataclass
 class Position:
     side: str
     entry_price: Decimal
     stop_loss: Decimal
     take_profit: Decimal
     opened_at: datetime
+    quantity: int = 0
 
 
 class Strategy:

@@ -3,7 +3,11 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import grpc
-from t_tech import invest, get_instrument_by_ticker
+from t_tech import invest
+from tinvest_client import (
+    get_instrument_by_ticker,
+    get_instrument_metadata_by_ticker,
+)
 
 from config import Settings
 from tinvest_client import money_value_to_decimal
@@ -15,15 +19,11 @@ from strategy_repository import (
     save_position,
     save_trade,
 )
+from broker import Broker
 
 logger = logging.getLogger(__name__)
 
 
-instrument = get_instrument_by_ticker(
-    settings,
-    settings.instrument_ticker,
-)
-instrument_uid = instrument.uid
 
 def calculate_rsi(closes: list[Decimal], period: int = 14) -> Decimal | None:
     """Calculate RSI using Wilder's smoothing method."""
@@ -137,9 +137,10 @@ def get_rsi_signal(
         f"{buy_level}..{sell_level}",
     )
 
-def get_sber_market_data(
-    settings: Settings,
-    candles_count: int = 30,
+def get_market_data(
+    settings,
+    instrument_uid: str,
+    candles_count=200,
 ):
     """
     Получает последние минутные свечи SBER
@@ -218,14 +219,14 @@ def print_sber_market_data(
 ):
     """Получить и вывести рыночные данные SBER."""
 
-    current_price, candles = get_sber_market_data(
+    current_price, candles = get_market_data(
         settings,
         candles_count=candles_count,
     )
 
     print()
     print("=" * 100)
-    print("SBER MARKET DATA")
+    print(f"{ticker} MARKET DATA")
     print("=" * 100)
 
     if current_price is not None:
@@ -262,7 +263,7 @@ def print_sber_market_data(
     print("=" * 100)
     print()
 
-def monitor_sber(settings: Settings, candles_count: int = 200):
+def monitor_instrument(settings: Settings, candles_count: int = 200):
     """
     Постоянный мониторинг SBER.
     Каждую минуту:
@@ -273,15 +274,32 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
 
     Торговые заявки НЕ отправляются.
     """
+    broker = Broker(settings)
+    instrument = get_instrument_by_ticker(
+        settings,
+        settings.instrument_ticker,
+    )
+
+    instrument_uid = instrument.uid
+    ticker = instrument.ticker
+
     logger.info(
-        "Starting SBER market monitoring: candles=%d",
+        "Monitoring instrument: %s (%s), uid=%s",
+        ticker,
+        instrument.class_code,
+        instrument_uid,
+    )
+    logger.info(
+        "Starting %s market monitoring: candles=%d",
+        ticker,
         candles_count,
     )
 
     print()
     print("=" * 100)
-    print("SBER MONITORING STARTED")
-    print("Trading is DISABLED")
+    print(f"{ticker} MONITORING STARTED")
+    print(f"Trading mode: {settings.trading_mode}")
+    print(f"Max position: {settings.max_position_rub} RUB")
     print("=" * 100)
 
     rsi_period = 14
@@ -302,9 +320,10 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
             #started_at = time.monotonic()
 
             try:
-                current_price, candles = get_sber_market_data(
+                current_price, candles = get_market_data(
                     settings,
-                    candles_count=candles_count,
+                    instrument_uid,
+                    candles_count,
                 )
                 closes = [candle["close"] for candle in candles]
 
@@ -327,31 +346,75 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
                     price=current_price,
                 )
 
-                if action == "OPEN" and strategy.position is not None:
-                    save_position(
-                        settings,
-                        instrument_uid,
-                        strategy.position,
+                execution_reason = None
+                executed = False
+                executed_quantity = 0
+
+                if action == "OPEN" and current_price is not None:
+                    executed, execution_reason, executed_quantity = broker.open_position(
+                        instrument=instrument,
+                        price=current_price,
                     )
                 
-                if action == "CLOSE":
-                    if strategy.last_closed_position is not None:
-                        save_trade(
+                    logger.info(
+                        "Execution: action=OPEN executed=%s "
+                        "quantity_lots=%d reason=%s",
+                        executed,
+                        executed_quantity,
+                        execution_reason,
+                    )
+                
+                    if executed and strategy.position is not None:
+                        strategy.position.quantity = executed_quantity
+                
+                        save_position(
                             settings,
                             instrument_uid,
-                            strategy.last_closed_position,
-                            current_price,
-                            action_reason,
+                            strategy.position,
+                        )
+
+                elif action == "CLOSE" and current_price is not None:
+                    if strategy.last_closed_position is None:
+                        logger.error(
+                            "CLOSE action without last_closed_position"
+                        )
+                    else:
+                        quantity_lots = strategy.last_closed_position.quantity
+                
+                        executed, execution_reason, executed_quantity = (
+                            broker.close_position(
+                                instrument=instrument,
+                                quantity_lots=quantity_lots,
+                                price=current_price,
+                            )
                         )
                 
-                    delete_position(settings)
+                        logger.info(
+                            "Execution: action=CLOSE executed=%s "
+                            "quantity_lots=%d reason=%s",
+                            executed,
+                            executed_quantity,
+                            execution_reason,
+                        )
+                
+                        if executed:
+                            save_trade(
+                                settings,
+                                instrument_uid,
+                                strategy.last_closed_position,
+                                current_price,
+                                action_reason,
+                            )
+                
+                            delete_position(settings)
 
+                # Сохраняем текущее значение RSI для следующего цикла.
                 previous_rsi = rsi
 
                 print()
                 print(
                     f"[{datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}] "
-                    f"SBER"
+                    f"{ticker}"
                 )
 
                 if current_price is not None:
@@ -362,12 +425,19 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
                 print(f"Candles: {len(candles)}")
 
                 if rsi is not None:
-                    if previous_rsi is not None:
+                    if rsi_before_update is not None:
+                        rsi_delta = rsi - rsi_before_update
+
                         print(
-                            f"RSI(14): {previous_rsi:.2f} -> {rsi:.2f}"
+                            f"RSI(14): "
+                            f"{rsi_before_update:.2f} -> {rsi:.2f} "
+                            f"(Δ {rsi_delta:+.2f})"
                         )
                     else:
-                        print(f"RSI(14): {rsi:.2f}")
+                        print(
+                            f"RSI(14): "
+                            f"previous=None -> current={rsi:.2f}"
+                        )
                 else:
                     print("RSI(14): unavailable")
                 
@@ -388,12 +458,11 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
 
                 print(f"Strategy action: {action}")
                 print(f"Action reason: {action_reason}")
-                print(f"Position: {position_text}")
+                # print(f"Position: {position_text}")
 
-                if action in ("OPEN", "CLOSE"):
+                if execution_reason is not None:
                     print(
-                        "Trading is DISABLED — "
-                        "order was not sent"
+                        f"Execution: {execution_reason}"
                     )
 
                 if candles:
@@ -412,7 +481,8 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
 
             except Exception:
                 logger.exception(
-                    "Error while getting SBER market data"
+                    "Error while getting %s market data",
+                    ticker,
                 )
 
             # Ждём следующую минуту.
@@ -429,17 +499,21 @@ def monitor_sber(settings: Settings, candles_count: int = 200):
             ).total_seconds() + 2
 
             logger.info(
-                "Next SBER market data request in %.1f seconds "
+                "Next %s market data request in %.1f seconds "
                 "(next minute + 2 sec)",
+                ticker,
                 sleep_time,
             )
 
             time.sleep(sleep_time)
 
     except KeyboardInterrupt:
-        logger.info("SBER market monitoring stopped")
+        logger.info(
+            "%s market monitoring stopped",
+            ticker,
+        )
 
         print()
         print("=" * 100)
-        print("SBER MONITORING STOPPED")
+        print(f"{ticker} MONITORING STOPPED")
         print("=" * 100)
