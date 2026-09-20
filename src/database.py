@@ -180,8 +180,7 @@ def init_strategy_positions_table(settings: Settings) -> None:
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS strategy_positions (
-                    id INTEGER PRIMARY KEY DEFAULT 1,
-                    instrument_uid TEXT NOT NULL,
+                    instrument_uid TEXT PRIMARY KEY,
                     side TEXT NOT NULL,
                     entry_price NUMERIC(20, 9) NOT NULL,
                     stop_loss NUMERIC(20, 9) NOT NULL,
@@ -189,9 +188,6 @@ def init_strategy_positions_table(settings: Settings) -> None:
                     quantity INTEGER NOT NULL DEFAULT 0,
                     opened_at TIMESTAMPTZ NOT NULL,
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-                    CONSTRAINT strategy_positions_singleton
-                        CHECK (id = 1),
 
                     CONSTRAINT strategy_positions_side
                         CHECK (side IN ('LONG')),
