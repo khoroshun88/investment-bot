@@ -1,3 +1,11 @@
 stocks:
   - ticker: SBER
     budget_rub: 500
+  - ticker: SMLT
+    budget_rub: 500
+  - ticker: ROSN
+    budget_rub: 500
+  - ticker: GAZP
+    budget_rub: 200
+#  - ticker: YDEX
+#    budget_rub: 500
