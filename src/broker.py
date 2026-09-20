@@ -39,7 +39,8 @@ class Broker:
 
         lot_cost = price * Decimal(lot)
 
-        return int(max_position_rub / lot_cost)
+        #return int(max_position_rub / lot_cost)
+        return int(Decimal(str(max_position_rub)) / lot_cost)
 
     @staticmethod
     def normalize_price(
