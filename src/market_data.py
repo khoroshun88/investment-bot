@@ -1,17 +1,14 @@
+import copy
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import grpc
 from t_tech import invest
-from tinvest_client import (
-    get_instrument_by_ticker,
-    get_instrument_metadata_by_ticker,
-)
 
+from broker import Broker
 from config import Settings
-from tinvest_client import money_value_to_decimal
-import time
 from strategy import Strategy
 from strategy_repository import (
     delete_position,
@@ -19,14 +16,22 @@ from strategy_repository import (
     save_position,
     save_trade,
 )
-from broker import Broker
+from tinvest_client import (
+    get_instrument_by_ticker,
+    money_value_to_decimal,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
-
-def calculate_rsi(closes: list[Decimal], period: int = 14) -> Decimal | None:
-    """Calculate RSI using Wilder's smoothing method."""
+def calculate_rsi(
+    closes: list[Decimal],
+    period: int = 14,
+) -> Decimal | None:
+    """
+    Calculate RSI using Wilder's smoothing method.
+    """
 
     if len(closes) < period + 1:
         return None
@@ -44,16 +49,27 @@ def calculate_rsi(closes: list[Decimal], period: int = 14) -> Decimal | None:
             gains.append(Decimal("0"))
             losses.append(abs(change))
 
-    average_gain = sum(gains[:period]) / Decimal(period)
-    average_loss = sum(losses[:period]) / Decimal(period)
+    average_gain = (
+        sum(gains[:period]) / Decimal(period)
+    )
+
+    average_loss = (
+        sum(losses[:period]) / Decimal(period)
+    )
 
     for i in range(period, len(gains)):
         average_gain = (
-            (average_gain * Decimal(period - 1)) + gains[i]
+            (
+                average_gain * Decimal(period - 1)
+            )
+            + gains[i]
         ) / Decimal(period)
 
         average_loss = (
-            (average_loss * Decimal(period - 1)) + losses[i]
+            (
+                average_loss * Decimal(period - 1)
+            )
+            + losses[i]
         ) / Decimal(period)
 
     if average_loss == 0:
@@ -65,8 +81,10 @@ def calculate_rsi(closes: list[Decimal], period: int = 14) -> Decimal | None:
     rs = average_gain / average_loss
 
     return Decimal("100") - (
-        Decimal("100") / (Decimal("1") + rs)
+        Decimal("100")
+        / (Decimal("1") + rs)
     )
+
 
 def get_rsi_signal(
     previous_rsi: Decimal | None,
@@ -89,32 +107,43 @@ def get_rsi_signal(
     Возвращает:
         (signal, reason)
     """
+
     if current_rsi is None:
         return "HOLD", "RSI недоступен"
 
     if previous_rsi is None:
         return (
             "HOLD",
-            "Первый расчёт RSI, предыдущее значение отсутствует",
+            "Первый расчёт RSI, "
+            "предыдущее значение отсутствует",
         )
 
-    # Пересечение BUY уровня сверху вниз.
-    if previous_rsi >= buy_level and current_rsi < buy_level:
+    # BUY: пересечение уровня сверху вниз.
+    if (
+        previous_rsi >= buy_level
+        and current_rsi < buy_level
+    ):
         return (
             "BUY",
             f"RSI пересёк уровень BUY {buy_level} "
-            f"сверху вниз: {previous_rsi:.2f} -> {current_rsi:.2f}",
+            f"сверху вниз: "
+            f"{previous_rsi:.2f} -> "
+            f"{current_rsi:.2f}",
         )
 
-    # Пересечение SELL уровня снизу вверх.
-    if previous_rsi <= sell_level and current_rsi > sell_level:
+    # SELL: пересечение уровня снизу вверх.
+    if (
+        previous_rsi <= sell_level
+        and current_rsi > sell_level
+    ):
         return (
             "SELL",
             f"RSI пересёк уровень SELL {sell_level} "
-            f"снизу вверх: {previous_rsi:.2f} -> {current_rsi:.2f}",
+            f"снизу вверх: "
+            f"{previous_rsi:.2f} -> "
+            f"{current_rsi:.2f}",
         )
 
-    # RSI ниже BUY уровня, но пересечения сейчас нет.
     if current_rsi < buy_level:
         return (
             "HOLD",
@@ -122,7 +151,6 @@ def get_rsi_signal(
             f"но нового пересечения нет",
         )
 
-    # RSI выше SELL уровня, но пересечения сейчас нет.
     if current_rsi > sell_level:
         return (
             "HOLD",
@@ -130,29 +158,27 @@ def get_rsi_signal(
             f"но нового пересечения нет",
         )
 
-    # RSI находится между уровнями.
     return (
         "HOLD",
         f"RSI находится в нейтральной зоне "
         f"{buy_level}..{sell_level}",
     )
 
+
 def get_market_data(
     settings,
     instrument_uid: str,
-    candles_count=200,
+    candles_count: int = 200,
 ):
     """
-    Получает последние минутные свечи SBER
+    Получает последние минутные свечи конкретного инструмента
     и текущую цену.
 
-    Никаких торговых заявок не отправляет.
+    Никаких торговых заявок здесь не отправляется.
     """
 
     now = datetime.now(timezone.utc)
 
-    # Для получения N минутных свечей запрашиваем
-    # немного больший интервал времени.
     from_time = now - timedelta(
         minutes=candles_count + 10
     )
@@ -167,22 +193,30 @@ def get_market_data(
                 instrument_id=instrument_uid,
                 from_=from_time,
                 to=now,
-                interval=invest.CandleInterval.CANDLE_INTERVAL_1_MIN,
+                interval=(
+                    invest.CandleInterval
+                    .CANDLE_INTERVAL_1_MIN
+                ),
                 limit=candles_count,
             )
 
-            last_prices = client.market_data.get_last_prices(
-                instrument_id=[instrument_uid],
+            last_prices = (
+                client.market_data.get_last_prices(
+                    instrument_id=[instrument_uid],
+                )
             )
 
     except grpc.RpcError as error:
         logger.error(
-            "T-Invest market data error: status=%s, details=%s",
+            "T-Invest market data error: "
+            "status=%s, details=%s",
             error.code().name,
             error.details(),
         )
+
         raise RuntimeError(
-            f"Ошибка T-Invest API при получении рыночных данных: "
+            "Ошибка T-Invest API при получении "
+            "рыночных данных: "
             f"{error.code().name}"
         ) from error
 
@@ -201,10 +235,18 @@ def get_market_data(
         result.append(
             {
                 "time": candle.time,
-                "open": money_value_to_decimal(candle.open),
-                "high": money_value_to_decimal(candle.high),
-                "low": money_value_to_decimal(candle.low),
-                "close": money_value_to_decimal(candle.close),
+                "open": money_value_to_decimal(
+                    candle.open
+                ),
+                "high": money_value_to_decimal(
+                    candle.high
+                ),
+                "low": money_value_to_decimal(
+                    candle.low
+                ),
+                "close": money_value_to_decimal(
+                    candle.close
+                ),
                 "volume": candle.volume,
                 "is_complete": candle.is_complete,
             }
@@ -213,82 +255,66 @@ def get_market_data(
     return current_price, result
 
 
-def print_sber_market_data(
+def monitor_instrument(
     settings: Settings,
-    candles_count: int = 30,
+    ticker: str,
+    budget_rub: float,
+    candles_count: int = 200,
 ):
-    """Получить и вывести рыночные данные SBER."""
-
-    current_price, candles = get_market_data(
-        settings,
-        candles_count=candles_count,
-    )
-
-    print()
-    print("=" * 100)
-    print(f"{ticker} MARKET DATA")
-    print("=" * 100)
-
-    if current_price is not None:
-        print(f"Current price: {current_price} RUB")
-    else:
-        print("Current price: unavailable")
-
-    print(f"Candles received: {len(candles)}")
-    print()
-
-    print(
-        f"{'TIME':<25}"
-        f"{'OPEN':>12}"
-        f"{'HIGH':>12}"
-        f"{'LOW':>12}"
-        f"{'CLOSE':>12}"
-        f"{'VOLUME':>12}"
-        f"{'COMPLETE':>10}"
-    )
-
-    print("-" * 100)
-
-    for candle in candles:
-        print(
-            f"{str(candle['time']):<25}"
-            f"{candle['open']:>12.2f}"
-            f"{candle['high']:>12.2f}"
-            f"{candle['low']:>12.2f}"
-            f"{candle['close']:>12.2f}"
-            f"{candle['volume']:>12}"
-            f"{str(candle['is_complete']):>10}"
-        )
-
-    print("=" * 100)
-    print()
-
-def monitor_instrument(settings: Settings, candles_count: int = 200):
     """
-    Постоянный мониторинг SBER.
-    Каждую минуту:
-    - получает последние минутные свечи;
-    - получает текущую цену;
-    - рассчитывает RSI(14);
-    - определяет сигнал только при пересечении уровней RSI.
+    Постоянный мониторинг одного инструмента.
 
-    Торговые заявки НЕ отправляются.
+    Каждый инструмент имеет:
+        - собственный Strategy;
+        - собственную PostgreSQL position;
+        - собственный бюджет;
+        - собственный RSI state.
+
+    Бюджет инструмента передаётся в Broker через отдельную
+    копию Settings, чтобы разные потоки не изменяли общий
+    settings.max_position_rub.
     """
-    broker = Broker(settings)
+
+    # -------------------------------------------------------------
+    # Получаем инструмент.
+    # -------------------------------------------------------------
+
     instrument = get_instrument_by_ticker(
         settings,
-        settings.instrument_ticker,
+        ticker,
     )
 
     instrument_uid = instrument.uid
+
     ticker = instrument.ticker
 
+    # -------------------------------------------------------------
+    # Каждый инструмент получает собственный экземпляр settings
+    # для Broker.
+    #
+    # Это важно: несколько потоков не должны одновременно менять
+    # общий settings.max_position_rub.
+    # -------------------------------------------------------------
+
+    broker_settings = copy.copy(settings)
+
+    broker_settings.max_position_rub = budget_rub
+
+    broker = Broker(broker_settings)
+
+    # -------------------------------------------------------------
+    # Логирование.
+    # -------------------------------------------------------------
+
     logger.info(
-        "Monitoring instrument: %s (%s), uid=%s",
+        "Monitoring instrument: %s (%s), uid=%s, "
+        "budget=%s RUB",
         ticker,
         instrument.class_code,
         instrument_uid,
+        budget_rub,
     )
+
     logger.info(
         "Starting %s market monitoring: candles=%d",
         ticker,
@@ -298,105 +324,295 @@ def monitor_instrument(settings: Settings, candles_count: int = 200):
     print()
     print("=" * 100)
     print(f"{ticker} MONITORING STARTED")
+    print(f"Instrument UID: {instrument_uid}")
     print(f"Trading mode: {settings.trading_mode}")
-    print(f"Max position: {settings.max_position_rub} RUB")
+    print(f"Position budget: {budget_rub} RUB")
     print("=" * 100)
+
+    # -------------------------------------------------------------
+    # RSI settings.
+    # -------------------------------------------------------------
 
     rsi_period = 14
     rsi_buy_level = Decimal("30")
     rsi_sell_level = Decimal("70")
 
     previous_rsi = None
+    last_processed_candle_time = None
+
+    # -------------------------------------------------------------
+    # У каждого инструмента собственная Strategy.
+    # -------------------------------------------------------------
+
     strategy = Strategy()
-    
+
+    # -------------------------------------------------------------
+    # Восстанавливаем позицию именно этого инструмента.
+    # -------------------------------------------------------------
+
     saved_position = load_position(
         settings,
         instrument_uid,
     )
-    
-    strategy.restore_position(saved_position)
+
+    strategy.restore_position(
+        saved_position
+    )
+
+    if saved_position is not None:
+        logger.info(
+            "Restored strategy position: "
+            "instrument=%s side=%s entry=%s "
+            "quantity=%d SL=%s TP=%s",
+            instrument_uid,
+            saved_position.side,
+            saved_position.entry_price,
+            saved_position.quantity,
+            saved_position.stop_loss,
+            saved_position.take_profit,
+        )
+
     try:
         while True:
-            #started_at = time.monotonic()
-
             try:
                 current_price, candles = get_market_data(
                     settings,
                     instrument_uid,
                     candles_count,
                 )
-                closes = [candle["close"] for candle in candles]
 
-                rsi = calculate_rsi(
-                    closes,
-                    period=rsi_period,
-                )
+                # -------------------------------------------------
+                # Только завершённые свечи.
+                # -------------------------------------------------
+
+                completed_candles = [
+                    candle
+                    for candle in candles
+                    if candle["is_complete"]
+                ]
+
+                new_candle = False
+                latest_completed_candle = None
+                latest_candle_time = None
+
+                if completed_candles:
+                    latest_completed_candle = (
+                        completed_candles[-1]
+                    )
+
+                    latest_candle_time = (
+                        latest_completed_candle["time"]
+                    )
+
+                    new_candle = (
+                        latest_candle_time
+                        != last_processed_candle_time
+                    )
+
+                # -------------------------------------------------
+                # Значения текущего цикла.
+                # -------------------------------------------------
+
+                rsi = None
 
                 rsi_before_update = previous_rsi
 
-                signal, signal_reason = get_rsi_signal(
-                    previous_rsi,
-                    rsi,
-                    buy_level=rsi_buy_level,
-                    sell_level=rsi_sell_level,
+                signal = "HOLD"
+
+                signal_reason = (
+                    "Waiting for new completed candle"
                 )
 
-                action, action_reason = strategy.work(
-                    signal=signal,
-                    price=current_price,
+                action = "HOLD"
+
+                action_reason = (
+                    "No new RSI signal"
                 )
 
                 execution_reason = None
                 executed = False
                 executed_quantity = 0
 
-                if action == "OPEN" and current_price is not None:
-                    executed, execution_reason, executed_quantity = broker.open_position(
+                # -------------------------------------------------
+                # RSI обрабатывается только на новой завершённой
+                # минутной свече.
+                # -------------------------------------------------
+
+                if new_candle:
+                    closes = [
+                        candle["close"]
+                        for candle in completed_candles
+                    ]
+
+                    rsi = calculate_rsi(
+                        closes,
+                        period=rsi_period,
+                    )
+
+                    rsi_before_update = previous_rsi
+
+                    signal, signal_reason = (
+                        get_rsi_signal(
+                            previous_rsi,
+                            rsi,
+                            buy_level=rsi_buy_level,
+                            sell_level=rsi_sell_level,
+                        )
+                    )
+
+                    action, action_reason = (
+                        strategy.work(
+                            signal=signal,
+                            price=current_price,
+                        )
+                    )
+
+                    previous_rsi = rsi
+
+                    last_processed_candle_time = (
+                        latest_candle_time
+                    )
+
+                    logger.info(
+                        "[%s] New completed candle: "
+                        "time=%s RSI=%s signal=%s "
+                        "reason=%s",
+                        ticker,
+                        latest_candle_time,
+                        (
+                            f"{rsi:.2f}"
+                            if rsi is not None
+                            else "None"
+                        ),
+                        signal,
+                        signal_reason,
+                    )
+
+                # -------------------------------------------------
+                # SL/TP проверяем каждые 10 секунд.
+                # -------------------------------------------------
+
+                elif (
+                    strategy.position is not None
+                    and current_price is not None
+                ):
+                    action, action_reason = (
+                        strategy.work(
+                            signal="HOLD",
+                            price=current_price,
+                        )
+                    )
+
+                # -------------------------------------------------
+                # OPEN.
+                # -------------------------------------------------
+
+                if (
+                    action == "OPEN"
+                    and current_price is not None
+                ):
+                    logger.info(
+                        "[%s] OPEN requested: "
+                        "price=%s budget=%s RUB",
+                        ticker,
+                        current_price,
+                        budget_rub,
+                    )
+
+                    (
+                        executed,
+                        execution_reason,
+                        executed_quantity,
+                    ) = broker.open_position(
                         instrument=instrument,
                         price=current_price,
                     )
-                
+
                     logger.info(
-                        "Execution: action=OPEN executed=%s "
-                        "quantity_lots=%d reason=%s",
+                        "[%s] Execution OPEN: "
+                        "executed=%s quantity_lots=%d "
+                        "reason=%s",
+                        ticker,
                         executed,
                         executed_quantity,
                         execution_reason,
                     )
-                
-                    if executed and strategy.position is not None:
-                        strategy.position.quantity = executed_quantity
-                
+
+                    if (
+                        executed
+                        and strategy.position is not None
+                    ):
+                        strategy.position.quantity = (
+                            executed_quantity
+                        )
+
                         save_position(
                             settings,
                             instrument_uid,
                             strategy.position,
                         )
 
-                elif action == "CLOSE" and current_price is not None:
-                    if strategy.last_closed_position is None:
+                # -------------------------------------------------
+                # CLOSE.
+                # -------------------------------------------------
+
+                elif (
+                    action == "CLOSE"
+                    and current_price is not None
+                ):
+                    if (
+                        strategy.last_closed_position
+                        is None
+                    ):
                         logger.error(
-                            "CLOSE action without last_closed_position"
+                            "[%s] CLOSE action without "
+                            "last_closed_position",
+                            ticker,
                         )
+
                     else:
-                        quantity_lots = strategy.last_closed_position.quantity
-                
-                        executed, execution_reason, executed_quantity = (
-                            broker.close_position(
+                        quantity_lots = (
+                            strategy.last_closed_position.quantity
+                        )
+
+                        # Защита от некорректной виртуальной
+                        # позиции.
+                        if quantity_lots <= 0:
+                            logger.error(
+                                "[%s] Cannot close position: "
+                                "quantity=%d",
+                                ticker,
+                                quantity_lots,
+                            )
+
+                            executed = False
+
+                            execution_reason = (
+                                "Некорректное количество "
+                                "позиции"
+                            )
+
+                        else:
+                            (
+                                executed,
+                                execution_reason,
+                                executed_quantity,
+                            ) = broker.close_position(
                                 instrument=instrument,
                                 quantity_lots=quantity_lots,
                                 price=current_price,
                             )
-                        )
-                
+
                         logger.info(
-                            "Execution: action=CLOSE executed=%s "
-                            "quantity_lots=%d reason=%s",
+                            "[%s] Execution CLOSE: "
+                            "executed=%s quantity_lots=%d "
+                            "reason=%s",
+                            ticker,
                             executed,
                             executed_quantity,
                             execution_reason,
                         )
-                
+
                         if executed:
                             save_trade(
                                 settings,
@@ -405,65 +621,152 @@ def monitor_instrument(settings: Settings, candles_count: int = 200):
                                 current_price,
                                 action_reason,
                             )
-                
-                            delete_position(settings)
 
-                # Сохраняем текущее значение RSI для следующего цикла.
-                previous_rsi = rsi
+                            delete_position(
+                                settings,
+                                instrument_uid,
+                            )
+
+                            strategy.last_closed_position = (
+                                None
+                            )
+
+                # -------------------------------------------------
+                # Вывод текущего состояния.
+                # -------------------------------------------------
 
                 print()
+
                 print(
                     f"[{datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}] "
                     f"{ticker}"
                 )
 
+                print(
+                    f"Budget: {budget_rub:.2f} RUB"
+                )
+
                 if current_price is not None:
-                    print(f"Current price: {current_price:.2f} RUB")
+                    print(
+                        f"Current price: "
+                        f"{current_price:.2f} RUB"
+                    )
                 else:
-                    print("Current price: unavailable")
+                    print(
+                        "Current price: unavailable"
+                    )
 
-                print(f"Candles: {len(candles)}")
+                print(
+                    f"Candles: {len(candles)}"
+                )
 
-                if rsi is not None:
-                    if rsi_before_update is not None:
-                        rsi_delta = rsi - rsi_before_update
+                # -------------------------------------------------
+                # RSI.
+                # -------------------------------------------------
 
-                        print(
-                            f"RSI(14): "
-                            f"{rsi_before_update:.2f} -> {rsi:.2f} "
-                            f"(Δ {rsi_delta:+.2f})"
-                        )
+                if new_candle:
+                    print(
+                        "New completed candle: "
+                        f"{latest_candle_time}"
+                    )
+
+                    if rsi is not None:
+                        if (
+                            rsi_before_update
+                            is not None
+                        ):
+                            rsi_delta = (
+                                rsi
+                                - rsi_before_update
+                            )
+
+                            print(
+                                f"RSI(14): "
+                                f"{rsi_before_update:.2f} -> "
+                                f"{rsi:.2f} "
+                                f"(Δ {rsi_delta:+.2f})"
+                            )
+
+                        else:
+                            print(
+                                f"RSI(14): "
+                                f"previous=None -> "
+                                f"current={rsi:.2f}"
+                            )
+
                     else:
                         print(
-                            f"RSI(14): "
-                            f"previous=None -> current={rsi:.2f}"
+                            "RSI(14): unavailable"
                         )
+
+                    print(
+                        f"Signal: {signal}"
+                    )
+
+                    print(
+                        f"Reason: {signal_reason}"
+                    )
+
                 else:
-                    print("RSI(14): unavailable")
-                
-                print(f"Signal: {signal}")
-                print(f"Reason: {signal_reason}")
+                    print(
+                        "RSI: waiting for new "
+                        "completed candle"
+                    )
+
+                    if previous_rsi is not None:
+                        print(
+                            f"RSI(14): "
+                            f"{previous_rsi:.2f} "
+                            f"(unchanged)"
+                        )
+
+                    print(
+                        "Signal: HOLD "
+                        "(RSI signal not processed)"
+                    )
+
+                # -------------------------------------------------
+                # Position.
+                # -------------------------------------------------
 
                 position = strategy.position
 
                 if position is None:
                     position_text = "NONE"
+
                 else:
                     position_text = (
                         f"{position.side} "
                         f"entry={position.entry_price} "
+                        f"quantity={position.quantity} "
                         f"SL={position.stop_loss} "
                         f"TP={position.take_profit}"
                     )
 
-                print(f"Strategy action: {action}")
-                print(f"Action reason: {action_reason}")
-                # print(f"Position: {position_text}")
+                print(
+                    f"Strategy position: "
+                    f"{position_text}"
+                )
+
+                print(
+                    f"Strategy action: "
+                    f"{action}"
+                )
+
+                print(
+                    f"Action reason: "
+                    f"{action_reason}"
+                )
 
                 if execution_reason is not None:
                     print(
-                        f"Execution: {execution_reason}"
+                        f"Execution: "
+                        f"{execution_reason}"
                     )
+
+                # -------------------------------------------------
+                # Последняя свеча.
+                # -------------------------------------------------
 
                 if candles:
                     last_candle = candles[-1]
@@ -476,8 +779,15 @@ def monitor_instrument(settings: Settings, candles_count: int = 200):
                         f"L={last_candle['low']:.2f} "
                         f"C={last_candle['close']:.2f} "
                         f"V={last_candle['volume']} "
-                        f"complete={last_candle['is_complete']}"
+                        f"complete="
+                        f"{last_candle['is_complete']}"
                     )
+
+                logger.info(
+                    "[%s] Next market data request "
+                    "in 10 seconds",
+                    ticker,
+                )
 
             except Exception:
                 logger.exception(
@@ -485,27 +795,7 @@ def monitor_instrument(settings: Settings, candles_count: int = 200):
                     ticker,
                 )
 
-            # Ждём следующую минуту.
-            # Учитываем время, которое занял API-запрос.
-            now = datetime.now(timezone.utc)
-
-            next_minute = (
-                now.replace(second=0, microsecond=0)
-                + timedelta(minutes=1)
-            )
-
-            sleep_time = (
-                next_minute - now
-            ).total_seconds() + 2
-
-            logger.info(
-                "Next %s market data request in %.1f seconds "
-                "(next minute + 2 sec)",
-                ticker,
-                sleep_time,
-            )
-
-            time.sleep(sleep_time)
+            time.sleep(10)
 
     except KeyboardInterrupt:
         logger.info(

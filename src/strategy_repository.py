@@ -1,11 +1,12 @@
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import psycopg
 
 from config import Settings
 from strategy import Position
-from datetime import datetime, timezone
+
 
 logger = logging.getLogger(__name__)
 
@@ -16,18 +17,23 @@ def save_position(
     position: Position,
 ) -> None:
     """
-    Сохраняет текущую виртуальную позицию Strategy в PostgreSQL.
+    Сохраняет текущую виртуальную позицию Strategy
+    в PostgreSQL.
+
+    Для каждого instrument_uid существует максимум одна
+    открытая позиция.
     """
 
     logger.info(
-        "Saving strategy position: instrument=%s side=%s "
+        "Saving strategy position: "
+        "instrument=%s side=%s quantity=%d "
         "entry=%s SL=%s TP=%s",
         instrument_uid,
         position.side,
+        position.quantity,
         position.entry_price,
         position.stop_loss,
         position.take_profit,
-        position.opened_at
     )
 
     with psycopg.connect(
@@ -41,7 +47,6 @@ def save_position(
             cursor.execute(
                 """
                 INSERT INTO strategy_positions (
-                    id,
                     instrument_uid,
                     side,
                     entry_price,
@@ -52,7 +57,6 @@ def save_position(
                     updated_at
                 )
                 VALUES (
-                    1,
                     %s,
                     %s,
                     %s,
@@ -62,9 +66,8 @@ def save_position(
                     %s,
                     NOW()
                 )
-                ON CONFLICT (id)
+                ON CONFLICT (instrument_uid)
                 DO UPDATE SET
-                    instrument_uid = EXCLUDED.instrument_uid,
                     side = EXCLUDED.side,
                     entry_price = EXCLUDED.entry_price,
                     stop_loss = EXCLUDED.stop_loss,
@@ -85,15 +88,15 @@ def save_position(
             )
 
     logger.info(
-        "Saving strategy position: instrument=%s side=%s "
-        "quantity=%d entry=%s SL=%s TP=%s",
+        "Strategy position saved: "
+        "instrument=%s side=%s quantity=%d "
+        "entry=%s SL=%s TP=%s",
         instrument_uid,
         position.side,
         position.quantity,
         position.entry_price,
         position.stop_loss,
         position.take_profit,
-        position.opened_at,
     )
 
 
@@ -102,7 +105,7 @@ def load_position(
     instrument_uid: str,
 ) -> Position | None:
     """
-    Загружает виртуальную позицию Strategy из PostgreSQL.
+    Загружает виртуальную позицию конкретного инструмента.
 
     Если позиции нет — возвращает None.
     """
@@ -130,8 +133,7 @@ def load_position(
                     quantity,
                     opened_at
                 FROM strategy_positions
-                WHERE id = 1
-                  AND instrument_uid = %s
+                WHERE instrument_uid = %s
                 """,
                 (instrument_uid,),
             )
@@ -139,10 +141,20 @@ def load_position(
             row = cursor.fetchone()
 
     if row is None:
-        logger.info("No saved strategy position")
+        logger.info(
+            "No saved strategy position: instrument=%s",
+            instrument_uid,
+        )
         return None
 
-    side, entry_price, stop_loss, take_profit, quantity, opened_at = row
+    (
+        side,
+        entry_price,
+        stop_loss,
+        take_profit,
+        quantity,
+        opened_at,
+    ) = row
 
     position = Position(
         side=side,
@@ -154,7 +166,10 @@ def load_position(
     )
 
     logger.info(
-        "Strategy position loaded: side=%s entry=%s SL=%s TP=%s",
+        "Strategy position loaded: "
+        "instrument=%s side=%s quantity=%d "
+        "entry=%s SL=%s TP=%s",
+        instrument_uid,
         position.side,
         position.quantity,
         position.entry_price,
@@ -165,14 +180,18 @@ def load_position(
     return position
 
 
-def delete_position(settings: Settings) -> None:
+def delete_position(
+    settings: Settings,
+    instrument_uid: str,
+) -> None:
     """
-    Удаляет текущую виртуальную позицию.
-
-    Используется после CLOSE.
+    Удаляет виртуальную позицию конкретного инструмента.
     """
 
-    logger.info("Deleting strategy position")
+    logger.info(
+        "Deleting strategy position: instrument=%s",
+        instrument_uid,
+    )
 
     with psycopg.connect(
         host=settings.db_host,
@@ -185,11 +204,16 @@ def delete_position(settings: Settings) -> None:
             cursor.execute(
                 """
                 DELETE FROM strategy_positions
-                WHERE id = 1
-                """
+                WHERE instrument_uid = %s
+                """,
+                (instrument_uid,),
             )
 
-    logger.info("Strategy position deleted")
+    logger.info(
+        "Strategy position deleted: instrument=%s",
+        instrument_uid,
+    )
+
 
 def save_trade(
     settings: Settings,
@@ -204,14 +228,21 @@ def save_trade(
 
     closed_at = datetime.now(timezone.utc)
 
-    pnl = exit_price - position.entry_price
+    # PnL на одну единицу инструмента.
+    # Количество хранится отдельно в quantity.
+    pnl_per_unit = exit_price - position.entry_price
+
+    # Общий PnL с учётом количества.
+    pnl = pnl_per_unit * Decimal(position.quantity)
 
     logger.info(
-        "Saving strategy trade: instrument=%s "
-        "entry=%s exit=%s reason=%s pnl=%s",
+        "Saving strategy trade: "
+        "instrument=%s entry=%s exit=%s "
+        "quantity=%d reason=%s pnl=%s",
         instrument_uid,
         position.entry_price,
         exit_price,
+        position.quantity,
         close_reason,
         pnl,
     )
@@ -258,7 +289,7 @@ def save_trade(
                     position.side,
                     position.entry_price,
                     exit_price,
-                    0,
+                    position.quantity,
                     position.stop_loss,
                     position.take_profit,
                     close_reason,
@@ -268,4 +299,8 @@ def save_trade(
                 ),
             )
 
-    logger.info("Strategy trade saved")
+    logger.info(
+        "Strategy trade saved: instrument=%s pnl=%s",
+        instrument_uid,
+        pnl,
+    )
