@@ -1,3 +1,5 @@
 stocks:
   - ticker: SBER
     budget_rub: 500
+  - ticker: SMLT
+    budget_rub: 500
