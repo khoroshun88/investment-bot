@@ -1,23 +1,5 @@
-# Secrets
-.env
-.env.*
-!.env.example
-
-# Persistent data
-data/
-
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-
-# Virtual environment
-.venv/
-venv/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
+```
+# Docker related
+.dockerenv
+Dockerfile
+```
