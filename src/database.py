@@ -75,6 +75,7 @@ def init_database(settings: Settings) -> None:
 
     logger.info("Database initialization completed")
     init_strategy_positions_table(settings)
+    init_strategy_trades_table(settings)
 
 
 def save_instruments(settings: Settings, instruments: dict) -> None:
@@ -180,7 +181,8 @@ def init_strategy_positions_table(settings: Settings) -> None:
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS strategy_positions (
-                    instrument_uid TEXT PRIMARY KEY,
+                    id SERIAL PRIMARY KEY,
+                    instrument_uid TEXT NOT NULL,
                     side TEXT NOT NULL,
                     entry_price NUMERIC(20, 9) NOT NULL,
                     stop_loss NUMERIC(20, 9) NOT NULL,
@@ -193,7 +195,10 @@ def init_strategy_positions_table(settings: Settings) -> None:
                         CHECK (side IN ('LONG')),
 
                     CONSTRAINT strategy_positions_quantity
-                        CHECK (quantity >= 0)
+                        CHECK (quantity >= 0),
+
+                    CONSTRAINT strategy_positions_unique_instrument
+                        UNIQUE (instrument_uid)
                 )
                 """
             )
