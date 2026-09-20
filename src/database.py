@@ -195,10 +195,7 @@ def init_strategy_positions_table(settings: Settings) -> None:
                         CHECK (side IN ('LONG')),
 
                     CONSTRAINT strategy_positions_quantity
-                        CHECK (quantity >= 0),
-
-                    CONSTRAINT strategy_positions_unique_instrument
-                        UNIQUE (instrument_uid)
+                        CHECK (quantity >= 0)
                 )
                 """
             )
