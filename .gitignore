@@ -1,21 +1,8 @@
-(src/database.py)
-.env
-*.pyc
-__pycache__/
-*.o
-*.obj
-*.so
-*.dll
-*.exe
-*.class
-*.out
-
-# Dependencies
-.venv/
-venv/
+# Secrets
 .env
 .env.local
 .env.*
+!.env.example
 
 # Logs and temp files
 *.log

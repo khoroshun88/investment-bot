@@ -620,6 +620,7 @@ def monitor_instrument(
                                 strategy.last_closed_position,
                                 current_price,
                                 action_reason,
+                                lot=int(instrument.lot),
                             )
 
                             delete_position(

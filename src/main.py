@@ -1,6 +1,7 @@
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import yaml
 
@@ -21,11 +22,13 @@ from tinvest_client import (
 )
 
 
-STOCKS_CONFIG_FILE = "stocks.yaml"
+STOCKS_CONFIG_FILE = (
+    Path(__file__).resolve().parent.parent / "stocks.yaml"
+)
 
 
 def load_stocks_config(
-    filename: str = STOCKS_CONFIG_FILE,
+    filename: str | Path = STOCKS_CONFIG_FILE,
 ) -> list[dict]:
     """
     Загружает список инструментов и бюджетов из YAML.
@@ -202,11 +205,6 @@ def main() -> None:
         settings,
         metadata,
     )
-
-    for uid, instrument in metadata.items():
-        print("=" * 80)
-        print("UID:", uid)
-        print(instrument)
 
     logger.info(
         "Application startup check completed successfully"

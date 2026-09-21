@@ -221,28 +221,36 @@ def save_trade(
     position: Position,
     exit_price: Decimal,
     close_reason: str,
+    lot: int = 1,
 ) -> None:
     """
     Сохраняет завершённую виртуальную сделку.
+
+    quantity хранит количество лотов,
+    поэтому PnL рассчитывается с учётом размера лота.
     """
 
     closed_at = datetime.now(timezone.utc)
 
     # PnL на одну единицу инструмента.
-    # Количество хранится отдельно в quantity.
     pnl_per_unit = exit_price - position.entry_price
 
-    # Общий PnL с учётом количества.
-    pnl = pnl_per_unit * Decimal(position.quantity)
+    # Общий PnL с учётом количества лотов и размера лота.
+    pnl = (
+        pnl_per_unit
+        * Decimal(position.quantity)
+        * Decimal(lot)
+    )
 
     logger.info(
         "Saving strategy trade: "
         "instrument=%s entry=%s exit=%s "
-        "quantity=%d reason=%s pnl=%s",
+        "quantity=%d lot=%d reason=%s pnl=%s",
         instrument_uid,
         position.entry_price,
         exit_price,
         position.quantity,
+        lot,
         close_reason,
         pnl,
     )
