@@ -552,6 +552,26 @@ def monitor_instrument(
                             strategy.position,
                         )
 
+                    elif not executed:
+                        # Реальная закупка не прошла — откатываем
+                        # виртуальную позицию, чтобы не ловить
+                        # SELL/SL/TP на несуществующей позиции.
+                        logger.warning(
+                            "[%s] OPEN not executed, "
+                            "virtual position rolled back: "
+                            "reason=%s",
+                            ticker,
+                            execution_reason,
+                        )
+
+                        strategy.position = None
+                        strategy.last_closed_position = None
+
+                        delete_position(
+                            settings,
+                            instrument_uid,
+                        )
+
                 # -------------------------------------------------
                 # CLOSE.
                 # -------------------------------------------------
