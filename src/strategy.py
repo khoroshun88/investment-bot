@@ -12,6 +12,30 @@ class Position:
     opened_at: datetime
     quantity: int = 0
 
+    def reprice(
+        self,
+        new_entry_price: Decimal,
+        stop_loss_percent: Decimal = Decimal("0.02"),
+        take_profit_percent: Decimal = Decimal("0.04"),
+    ) -> None:
+        """
+        Пересчитывает точку входа, SL и TP по фактической
+        цене исполнения заявки.
+
+        Используется после успешного LIVE/PAPER исполнения,
+        когда реальная цена может отличаться от last price.
+        """
+
+        self.entry_price = new_entry_price
+
+        self.stop_loss = new_entry_price * (
+            Decimal("1") - stop_loss_percent
+        )
+
+        self.take_profit = new_entry_price * (
+            Decimal("1") + take_profit_percent
+        )
+
 
 class Strategy:
     """

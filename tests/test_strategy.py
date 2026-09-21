@@ -238,3 +238,50 @@ def test_take_profit_is_four_percent():
 
     assert strategy.position is not None
     assert strategy.position.take_profit == Decimal("104.00")
+
+
+def test_reprice_uses_actual_execution_price():
+    strategy = Strategy()
+
+    strategy.work(
+        signal="BUY",
+        price=Decimal("100.00"),
+    )
+
+    assert strategy.position is not None
+
+    strategy.position.quantity = 2
+    strategy.position.reprice(
+        Decimal("105.00"),
+        stop_loss_percent=strategy.stop_loss_percent,
+        take_profit_percent=strategy.take_profit_percent,
+    )
+
+    assert strategy.position.entry_price == Decimal("105.00")
+    assert strategy.position.stop_loss == Decimal("102.9000")
+    assert strategy.position.take_profit == Decimal("109.2000")
+    assert strategy.position.quantity == 2
+
+
+def test_reprice_uses_strategy_percentages():
+    strategy = Strategy(
+        stop_loss_percent=Decimal("0.05"),
+        take_profit_percent=Decimal("0.10"),
+    )
+
+    strategy.work(
+        signal="BUY",
+        price=Decimal("100.00"),
+    )
+
+    assert strategy.position is not None
+
+    strategy.position.reprice(
+        Decimal("200.00"),
+        stop_loss_percent=strategy.stop_loss_percent,
+        take_profit_percent=strategy.take_profit_percent,
+    )
+
+    assert strategy.position.entry_price == Decimal("200.00")
+    assert strategy.position.stop_loss == Decimal("190.00")
+    assert strategy.position.take_profit == Decimal("220.00")

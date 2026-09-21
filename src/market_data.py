@@ -523,6 +523,7 @@ def monitor_instrument(
                         executed,
                         execution_reason,
                         executed_quantity,
+                        executed_price,
                     ) = broker.open_position(
                         instrument=instrument,
                         price=current_price,
@@ -531,19 +532,33 @@ def monitor_instrument(
                     logger.info(
                         "[%s] Execution OPEN: "
                         "executed=%s quantity_lots=%d "
-                        "reason=%s",
+                        "executed_price=%s reason=%s",
                         ticker,
                         executed,
                         executed_quantity,
+                        executed_price,
                         execution_reason,
                     )
 
                     if (
                         executed
                         and strategy.position is not None
+                        and executed_price is not None
                     ):
                         strategy.position.quantity = (
                             executed_quantity
+                        )
+
+                        # Фиксируем фактическую цену исполнения
+                        # и пересчитываем SL/TP от неё.
+                        strategy.position.reprice(
+                            executed_price,
+                            stop_loss_percent=(
+                                strategy.stop_loss_percent
+                            ),
+                            take_profit_percent=(
+                                strategy.take_profit_percent
+                            ),
                         )
 
                         save_position(
@@ -617,6 +632,7 @@ def monitor_instrument(
                                 executed,
                                 execution_reason,
                                 executed_quantity,
+                                executed_price,
                             ) = broker.close_position(
                                 instrument=instrument,
                                 quantity_lots=quantity_lots,
@@ -626,19 +642,28 @@ def monitor_instrument(
                         logger.info(
                             "[%s] Execution CLOSE: "
                             "executed=%s quantity_lots=%d "
-                            "reason=%s",
+                            "executed_price=%s reason=%s",
                             ticker,
                             executed,
                             executed_quantity,
+                            executed_price,
                             execution_reason,
                         )
 
                         if executed:
+                            # В сделку пишем фактическую цену
+                            # исполнения, а не last price.
+                            exit_price = (
+                                executed_price
+                                if executed_price is not None
+                                else current_price
+                            )
+
                             save_trade(
                                 settings,
                                 instrument_uid,
                                 strategy.last_closed_position,
-                                current_price,
+                                exit_price,
                                 action_reason,
                                 lot=int(instrument.lot),
                             )

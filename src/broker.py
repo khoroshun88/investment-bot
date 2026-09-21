@@ -140,9 +140,11 @@ class Broker:
         Если стакан пуст — используется fallback_price
         (цена последней сделки), нормализованная по шагу.
 
-        Для BUY дополнительно добавляется один шаг цены,
-        чтобы заявка перекрывала спред и не «зависала»
-        в пустом стакане низколиквидных бумаг.
+        При непустом стакане заявка ставится ровно по цене
+        стакана (исполнение по ask/bid либо лучше).
+
+        Только в fallback-случае для BUY добавляется один шаг
+        цены, чтобы заявка перекрыла спред.
         """
 
         ask_or_bid = None
@@ -165,7 +167,11 @@ class Broker:
                 direction,
             )
 
-        if ask_or_bid is not None and ask_or_bid > 0:
+        used_order_book = (
+            ask_or_bid is not None and ask_or_bid > 0
+        )
+
+        if used_order_book:
             price = ask_or_bid
         else:
             logger.warning(
@@ -182,7 +188,14 @@ class Broker:
             min_price_increment,
         )
 
-        if direction == "BUY" and min_price_increment > 0:
+        # Шаг вверх добавляем только при угадывании цены,
+        # чтобы компенсировать пустой стакан. При наличии
+        # ask исполняемся ровно по рыночной цене.
+        if (
+            not used_order_book
+            and direction == "BUY"
+            and min_price_increment > 0
+        ):
             price = price + min_price_increment
 
         return price
@@ -191,22 +204,25 @@ class Broker:
         self,
         instrument,
         price: Decimal,
-    ) -> tuple[bool, str, int]:
+    ) -> tuple[bool, str, int, Decimal | None]:
         """
         Open a long position.
 
         Returns:
-            (executed, reason, quantity_lots)
+            (executed, reason, quantity_lots, executed_price)
+
+        executed_price — фактическая средняя цена исполнения
+        (None, если заявка не исполнена).
         """
 
         if self.settings.trading_mode == "DISABLED":
-            return False, "TRADING_DISABLED", 0
+            return False, "TRADING_DISABLED", 0, None
 
         if not instrument.api_trade_available_flag:
-            return False, "API_TRADE_NOT_AVAILABLE", 0
+            return False, "API_TRADE_NOT_AVAILABLE", 0, None
 
         if not instrument.buy_available_flag:
-            return False, "BUY_NOT_AVAILABLE", 0
+            return False, "BUY_NOT_AVAILABLE", 0, None
 
         lot = int(instrument.lot)
 
@@ -221,7 +237,7 @@ class Broker:
         )
 
         if quantity_lots <= 0:
-            return False, "MAX_POSITION_TOO_SMALL", 0
+            return False, "MAX_POSITION_TOO_SMALL", 0, None
 
         normalized_price = self.normalize_price(
             price,
@@ -252,6 +268,7 @@ class Broker:
                 True,
                 f"PAPER BUY {quantity_lots} лот(ов) по цене {normalized_price}",
                 quantity_lots,
+                normalized_price,
             )
 
         if self.settings.trading_mode == "LIVE":
@@ -268,34 +285,34 @@ class Broker:
                 price=live_price,
             )
 
-        return False, "UNKNOWN_TRADING_MODE", 0
+        return False, "UNKNOWN_TRADING_MODE", 0, None
 
     def close_position(
         self,
         instrument,
         quantity_lots: int,
         price: Decimal,
-    ) -> tuple[bool, str, int]:
+    ) -> tuple[bool, str, int, Decimal | None]:
         """
         Close a long position.
 
         quantity_lots is the actual broker position size in lots.
 
         Returns:
-            (executed, reason, quantity_lots)
+            (executed, reason, quantity_lots, executed_price)
         """
 
         if self.settings.trading_mode == "DISABLED":
-            return False, "TRADING_DISABLED", 0
+            return False, "TRADING_DISABLED", 0, None
 
         if not instrument.api_trade_available_flag:
-            return False, "API_TRADE_NOT_AVAILABLE", 0
+            return False, "API_TRADE_NOT_AVAILABLE", 0, None
 
         if not instrument.sell_available_flag:
-            return False, "SELL_NOT_AVAILABLE", 0
+            return False, "SELL_NOT_AVAILABLE", 0, None
 
         if quantity_lots <= 0:
-            return False, "INVALID_QUANTITY", 0
+            return False, "INVALID_QUANTITY", 0, None
 
         min_price_increment = self.quotation_to_decimal(
             instrument.min_price_increment
@@ -329,6 +346,7 @@ class Broker:
                 True,
                 f"PAPER SELL {quantity_lots} лот(ов) по цене {normalized_price}",
                 quantity_lots,
+                normalized_price,
             )
 
         if self.settings.trading_mode == "LIVE":
@@ -345,14 +363,14 @@ class Broker:
                 price=live_price,
             )
 
-        return False, "UNKNOWN_TRADING_MODE", 0
+        return False, "UNKNOWN_TRADING_MODE", 0, None
 
     def _live_buy(
         self,
         instrument,
         quantity_lots: int,
         price: Decimal,
-    ) -> tuple[bool, str, int]:
+    ) -> tuple[bool, str, int, Decimal | None]:
         """Send and verify LIVE BUY order with retries."""
 
         last_reason = "LIVE BUY NOT EXECUTED"
@@ -392,24 +410,34 @@ class Broker:
 
                     logger.info(
                         "LIVE BUY response: order_id=%s "
-                        "status=%s requested=%d executed=%d",
+                        "status=%s requested=%d executed=%d "
+                        "executed_price=%s",
                         response.order_id,
                         response.execution_report_status,
                         response.lots_requested,
                         response.lots_executed,
+                        response.executed_order_price,
                     )
 
                     executed_quantity = int(response.lots_executed)
 
                     if executed_quantity > 0:
+                        executed_price = (
+                            self.quotation_to_decimal(
+                                response.executed_order_price
+                            )
+                        )
+
                         return (
                             True,
                             (
                                 f"LIVE BUY executed: "
-                                f"{executed_quantity} лот(ов), "
+                                f"{executed_quantity} лот(ов) "
+                                f"по цене {executed_price}, "
                                 f"order_id={response.order_id}"
                             ),
                             executed_quantity,
+                            executed_price,
                         )
 
                     last_reason = (
@@ -442,14 +470,14 @@ class Broker:
 
                 time.sleep(LIVE_ORDER_RETRY_DELAY_SECONDS)
 
-        return False, last_reason, 0
+        return False, last_reason, 0, None
 
     def _live_sell(
         self,
         instrument,
         quantity_lots: int,
         price: Decimal,
-    ) -> tuple[bool, str, int]:
+    ) -> tuple[bool, str, int, Decimal | None]:
         """Send and verify LIVE SELL order with retries."""
 
         last_reason = "LIVE SELL NOT EXECUTED"
@@ -489,24 +517,34 @@ class Broker:
 
                     logger.info(
                         "LIVE SELL response: order_id=%s "
-                        "status=%s requested=%d executed=%d",
+                        "status=%s requested=%d executed=%d "
+                        "executed_price=%s",
                         response.order_id,
                         response.execution_report_status,
                         response.lots_requested,
                         response.lots_executed,
+                        response.executed_order_price,
                     )
 
                     executed_quantity = int(response.lots_executed)
 
                     if executed_quantity > 0:
+                        executed_price = (
+                            self.quotation_to_decimal(
+                                response.executed_order_price
+                            )
+                        )
+
                         return (
                             True,
                             (
                                 f"LIVE SELL executed: "
-                                f"{executed_quantity} лот(ов), "
+                                f"{executed_quantity} лот(ов) "
+                                f"по цене {executed_price}, "
                                 f"order_id={response.order_id}"
                             ),
                             executed_quantity,
+                            executed_price,
                         )
 
                     last_reason = (
@@ -538,4 +576,4 @@ class Broker:
 
                 time.sleep(LIVE_ORDER_RETRY_DELAY_SECONDS)
 
-        return False, last_reason, 0
+        return False, last_reason, 0, None
